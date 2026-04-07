@@ -2,21 +2,24 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-
-import { askQuestion, fetchInsights, streamCall } from "../../../lib/api";
-
-type Segment = { speaker: string; text: string; start_time: number; end_time: number };
+import { streamCall, fetchInsights } from "../../../lib/api";
+import { useSetConnection } from "../../../components/connection-context";
+import { ConnectionStatus } from "../../../components/connection-status";
+import { TranscriptViewer } from "../../../components/transcript-viewer";
+import { InsightsPanel } from "../../../components/insights-panel";
+import { SentimentChartComponent } from "../../../components/sentiment-chart";
+import { QAForm } from "../../../components/qa-form";
+import type { TranscriptSegment, Insights, ConnectionStatus as ConnectionStatusType } from "../../../lib/types";
 
 export default function CallDashboard() {
   const params = useParams<{ id: string }>();
   const callId = params.id;
-  const [segments, setSegments] = useState<Segment[]>([]);
+  const [segments, setSegments] = useState<TranscriptSegment[]>([]);
   const [progress, setProgress] = useState(0);
-  const [insights, setInsights] = useState<any>(null);
-  const [question, setQuestion] = useState("");
-  const [answer, setAnswer] = useState("");
-  const [connection, setConnection] = useState<"connecting" | "connected" | "reconnecting" | "closed">("connecting");
+  const [insights, setInsights] = useState<Insights | null>(null);
+  const [connection, setConnection] = useState<ConnectionStatusType>("connecting");
+  const [insightsLoading, setInsightsLoading] = useState(false);
+  const setGlobalConnection = useSetConnection();
 
   useEffect(() => {
     if (!callId) return;
@@ -37,116 +40,107 @@ export default function CallDashboard() {
           if (event.type === "status") {
             setProgress(event.progress || 0);
           }
-          if (event.type === "transcript_segment") {
+          if (event.type === "transcript_segment" && event.segment) {
             setProgress(event.progress || 0);
             if (!event.is_partial) {
               setSegments((s) => {
                 const last = s[s.length - 1];
                 if (
                   last &&
-                  last.start_time === event.segment.start_time &&
-                  last.end_time === event.segment.end_time &&
-                  last.text === event.segment.text
+                  last.start_time === event.segment!.start_time &&
+                  last.end_time === event.segment!.end_time &&
+                  last.text === event.segment!.text
                 ) {
                   return s;
                 }
-                return [...s, event.segment];
+                return [...s, event.segment!];
               });
             }
           }
           if (event.type === "completed") {
             setProgress(100);
+            setInsightsLoading(true);
             const data = await fetchInsights(callId);
             setInsights(data);
+            setInsightsLoading(false);
           }
         },
         sinceSeq
       );
 
-      ws.onopen = () => setConnection("connected");
+      ws.onopen = () => {
+        setConnection("connected");
+        setGlobalConnection("connected");
+      };
       ws.onclose = () => {
         if (closedByUnmount) {
           setConnection("closed");
+          setGlobalConnection("closed");
           return;
         }
+        setConnection("reconnecting");
+        setGlobalConnection("reconnecting");
         retryTimer = setTimeout(() => connect(true), 1200);
       };
     };
 
     connect(false);
+    setGlobalConnection("connecting");
     return () => {
       closedByUnmount = true;
       if (retryTimer) clearTimeout(retryTimer);
       ws?.close();
+      setGlobalConnection(null);
     };
-  }, [callId]);
+  }, [callId, setGlobalConnection]);
 
   const sentimentChart = useMemo(() => insights?.sentiment_timeline || [], [insights]);
-
-  async function onAsk(e: React.FormEvent) {
-    e.preventDefault();
-    const out = await askQuestion(callId, question);
-    setAnswer(out.answer);
-  }
+  const isProcessing = progress < 100;
 
   return (
     <main className="container">
-      <h1>Call Dashboard</h1>
-      <p style={{ color: "var(--muted)" }}>Progress: {progress}%</p>
-      <p style={{ color: "var(--muted)" }}>Stream: {connection}</p>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <section className="card">
-          <h3>Live Transcript</h3>
-          {segments.map((s, i) => (
-            <p key={i}>
-              <strong>{s.speaker}:</strong> {s.text}
-            </p>
-          ))}
-        </section>
+        <div className="animate-fade-in-up">
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+              <h1>Call Analysis</h1>
+              <ConnectionStatus status={connection} />
+            </div>
 
-        <section className="card">
-          <h3>Insights</h3>
-          {!insights ? (
-            <p>Waiting for analysis...</p>
-          ) : (
-            <>
-              <p>
-                <strong>Call Score:</strong> {insights.call_score?.total ?? "-"}
-              </p>
-              <h4>Objections</h4>
-              <ul>{(insights.objections || []).map((o: any, i: number) => <li key={i}>{o.text}</li>)}</ul>
-              <h4>Action Items</h4>
-              <ul>{(insights.action_items || []).map((a: any, i: number) => <li key={i}>{a.text}</li>)}</ul>
-            </>
-          )}
-        </section>
-      </div>
+            {isProcessing && (
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                  <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>Processing call</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: "var(--accent)" }}>{progress}%</span>
+                </div>
+                <div className="progress-bar">
+                  <div className="progress-bar-fill" style={{ width: `${progress}%` }} />
+                </div>
+              </div>
+            )}
+          </div>
 
-      <section className="card" style={{ marginTop: 12, height: 260 }}>
-        <h3>Sentiment Timeline</h3>
-        <ResponsiveContainer width="100%" height="85%">
-          <LineChart data={sentimentChart}>
-            <XAxis dataKey="timestamp" />
-            <YAxis domain={[-1, 1]} />
-            <Tooltip />
-            <Line type="monotone" dataKey="score" stroke="#3ee1b3" strokeWidth={2} dot={false} />
-          </LineChart>
-        </ResponsiveContainer>
-      </section>
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: 16,
+          }}>
+            <section className="card">
+              <TranscriptViewer segments={segments} isLoading={isProcessing} />
+            </section>
 
-      <section className="card" style={{ marginTop: 12 }}>
-        <h3>Ask about this call</h3>
-        <form onSubmit={onAsk} style={{ display: "flex", gap: 8 }}>
-          <input
-            value={question}
-            onChange={(e) => setQuestion(e.target.value)}
-            placeholder="When did customer mention pricing?"
-            style={{ flex: 1, padding: 10, borderRadius: 8, border: "1px solid #263553", background: "#0d162b", color: "white" }}
-          />
-          <button className="btn">Ask</button>
-        </form>
-        {answer && <p style={{ marginTop: 8 }}>{answer}</p>}
-      </section>
-    </main>
-  );
-}
+            <section className="card">
+              <InsightsPanel insights={insights} isLoading={insightsLoading} />
+            </section>
+          </div>
+
+          <section className="card animate-fade-in" style={{ marginTop: 16 }}>
+            <SentimentChartComponent data={sentimentChart} />
+          </section>
+
+          <section className="card animate-fade-in" style={{ marginTop: 16 }}>
+            <QAForm callId={callId} />
+          </section>
+        </div>
+      </main>
+    );
+  }
