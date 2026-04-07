@@ -17,3 +17,4 @@ node_modules/
 frontend/.env.local
 backend/.env
 storage/
+recordings/

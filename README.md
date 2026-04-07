@@ -1,39 +1,14 @@
 # SalesLens - Real-Time Sales Call Intelligence
 
-![Python](https://img.shields.io/badge/Python-3.11+-blue)
-![FastAPI](https://img.shields.io/badge/FastAPI-Backend-009688)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Data-336791)
-![Redis](https://img.shields.io/badge/Redis-Session-red)
-![Next.js](https://img.shields.io/badge/Next.js-Frontend-black)
-![Tailwind](https://img.shields.io/badge/Tailwind-v4-38bdf8)
-![LangChain](https://img.shields.io/badge/LangChain-RAG-2d6a4f)
-![FAISS](https://img.shields.io/badge/FAISS-Vector%20Index-5a189a)
-
-SalesLens is a Darwix-style intelligence platform for sales calls. Upload a call, stream transcription in real time, generate actionable insights, and ask grounded questions over the transcript.
+SalesLens is a intelligence platform for sales calls. Upload a call, stream transcription in real time, generate actionable insights, and ask grounded questions over the transcript.
 
 ## Demo
 
 - Screenshot/GIF placeholder: add `docs/demo.gif` after local run validation.
-- Frontend URL: `TBD (Vercel)`
-- Backend URL: `TBD (Render)`
 
 ## Architecture
 
-```text
-Browser (Next.js)
-  |- POST /calls/upload ------------------------------.
-  |- WS /calls/{id}/stream                            |
-  |- GET /calls/{id}/insights                         |
-  |- POST /calls/{id}/query                           |
-  `- GET /calls                                       |
-                                                     v
-FastAPI Backend ---------------------------------> Redis (session/progress)
-  |- faster-whisper transcription
-  |- diarization role mapping
-  |- intelligence pipeline (objections/sentiment/actions/score)
-  |- RAG retrieval + HF Router LLM
-  `- persistence layer ---------------------------> PostgreSQL (calls/transcripts/insights)
-```
+![Architecture Diagram](docs/architecture.png)
 
 ## Core Features
 

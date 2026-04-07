@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.db import Base, SessionLocal, engine, get_db
+from app.db import SessionLocal, get_db
 from app.models import Call, Insight, Transcript
 from app.schemas import CallOut, QueryRequest, UploadResponse
 from app.services.orchestrator import CallProcessingGraph
@@ -28,7 +28,6 @@ app.add_middleware(
 @app.on_event("startup")
 def startup() -> None:
     Path(settings.upload_dir).mkdir(parents=True, exist_ok=True)
-    Base.metadata.create_all(bind=engine)
 
 
 @app.get("/health")
