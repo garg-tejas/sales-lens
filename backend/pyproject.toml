@@ -21,6 +21,8 @@ dependencies = [
   "redis>=5.1.1",
   "sqlalchemy>=2.0.36",
   "textblob>=0.18.0.post0",
+  "torch>=2.8.0",
+  "torchvision>=0.23.0",
   "uvicorn[standard]>=0.32.0",
   "faiss-cpu>=1.9.0",
 ]
@@ -37,3 +39,16 @@ dev = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["backend"]
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cu130", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+torchvision = [
+  { index = "pytorch-cu130", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true

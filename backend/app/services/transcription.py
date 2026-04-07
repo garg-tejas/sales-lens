@@ -2,6 +2,7 @@ from collections.abc import Generator
 
 from faster_whisper import WhisperModel
 from pyannote.audio import Pipeline
+import torch
 
 from app.config import settings
 
@@ -22,6 +23,7 @@ def apply_diarization(audio_path: str, segments: list[dict]) -> list[dict]:
         return segments
     try:
         pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1", use_auth_token=settings.hf_token)
+        pipeline.to(torch.device(settings.diarization_device))
         diarization = pipeline(audio_path)
     except Exception:
         return segments
@@ -82,7 +84,11 @@ def apply_diarization(audio_path: str, segments: list[dict]) -> list[dict]:
 
 
 def transcribe_segments(audio_path: str) -> tuple[list[dict], str]:
-    model = WhisperModel(settings.whisper_model_size)
+    model = WhisperModel(
+        settings.whisper_model_size,
+        device=settings.whisper_device,
+        compute_type=settings.whisper_compute_type,
+    )
     segments, info = model.transcribe(audio_path, vad_filter=True, language=None)
 
     out = []

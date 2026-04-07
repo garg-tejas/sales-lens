@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     hf_model_analysis: str = "Qwen/Qwen3.5-9B:together"
     hf_model_qa: str = "Qwen/Qwen3.5-9B:together"
     whisper_model_size: str = "small"
+    whisper_device: str = "cuda"
+    whisper_compute_type: str = "float16"
+    diarization_device: str = "cuda"
     upload_dir: str = "./storage/uploads"
     index_dir: str = "./storage/indexes"
     transcript_chunk_size: int = 800
