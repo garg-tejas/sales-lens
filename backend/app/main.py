@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+import asyncio
+import logging
 import uuid
 from pathlib import Path
 
@@ -10,12 +14,28 @@ from app.config import settings
 from app.db import SessionLocal, get_db
 from app.models import Call, Insight, Transcript
 from app.schemas import CallOut, QueryRequest, UploadResponse
+from app.services.models import (
+    clear_gpu_cache,
+    get_diarization,
+    get_embedder,
+    get_whisper,
+)
 from app.services.orchestrator import CallProcessingGraph
 from app.services.rag import query_transcript
-from app.services.redis_state import append_event, get_events_since, get_state, set_state
+from app.services.redis_state import (
+    append_event,
+    get_events_since,
+    get_state,
+    set_state,
+)
 from app.services.transcription import stream_segments, transcribe_segments
 
-app = FastAPI(title="SalesLens API", version="0.1.0")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s %(message)s"
+)
+logger = logging.getLogger("saleslens")
+
+app = FastAPI(title="SalesLens API", version="0.2.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -28,6 +48,20 @@ app.add_middleware(
 @app.on_event("startup")
 def startup() -> None:
     Path(settings.upload_dir).mkdir(parents=True, exist_ok=True)
+    logger.info("Pre-loading models on %s ...", settings.whisper_device)
+    try:
+        get_whisper()
+    except Exception:
+        logger.exception("Failed to preload Whisper model")
+    try:
+        get_diarization()
+    except Exception:
+        logger.exception("Failed to preload diarization pipeline")
+    try:
+        get_embedder()
+    except Exception:
+        logger.exception("Failed to preload embedding model")
+    logger.info("Model preloading complete.")
 
 
 @app.get("/health")
@@ -36,7 +70,9 @@ def health() -> dict:
 
 
 @app.post("/calls/upload", response_model=UploadResponse)
-async def upload_call(file: UploadFile = File(...), db: Session = Depends(get_db)) -> UploadResponse:
+async def upload_call(
+    file: UploadFile = File(...), db: Session = Depends(get_db)
+) -> UploadResponse:
     call = Call(filename=file.filename, language="auto", duration=0.0)
     db.add(call)
     db.commit()
@@ -76,8 +112,11 @@ async def stream_call(call_id: str, websocket: WebSocket) -> None:
     processing_event["seq"] = seq
     await websocket.send_json(processing_event)
     audio_path = str(upload_candidates[0])
-    segments, language = transcribe_segments(audio_path)
-    set_state(call_id, {"status": "processing", "progress": 10, "segments": [], "last_seq": 0})
+
+    segments, language = await asyncio.to_thread(transcribe_segments, audio_path)
+    set_state(
+        call_id, {"status": "processing", "progress": 10, "segments": [], "last_seq": 0}
+    )
 
     db = SessionLocal()
     try:
@@ -104,15 +143,26 @@ async def stream_call(call_id: str, websocket: WebSocket) -> None:
             seq = append_event(call_id, event)
             event_with_seq = {**event, "seq": seq}
             await websocket.send_json(event_with_seq)
-            set_state(call_id, {"status": "processing", "progress": event["progress"], "last_seq": seq})
+            set_state(
+                call_id,
+                {
+                    "status": "processing",
+                    "progress": event["progress"],
+                    "last_seq": seq,
+                },
+            )
 
-        pipeline_state = CallProcessingGraph(segments=segments, call_id=call_id).run()
+        pipeline = CallProcessingGraph(segments=segments, call_id=call_id)
+        pipeline_state = await asyncio.to_thread(pipeline.run)
+
         objections = pipeline_state["objections"]
         sentiment = pipeline_state["sentiment"]
         actions = pipeline_state["actions"]
         score = pipeline_state["score"]
 
-        insight = db.query(Insight).filter(Insight.call_id == uuid.UUID(call_id)).first()
+        insight = (
+            db.query(Insight).filter(Insight.call_id == uuid.UUID(call_id)).first()
+        )
         if insight is None:
             insight = Insight(
                 call_id=uuid.UUID(call_id),
@@ -131,10 +181,15 @@ async def stream_call(call_id: str, websocket: WebSocket) -> None:
     finally:
         db.close()
 
+    clear_gpu_cache()
+
     completed_event = {"type": "status", "status": "completed", "progress": 100}
     seq = append_event(call_id, completed_event)
     completed_event_with_seq = {**completed_event, "seq": seq}
-    set_state(call_id, {"status": "completed", "progress": 100, "segments": segments, "last_seq": seq})
+    set_state(
+        call_id,
+        {"status": "completed", "progress": 100, "segments": segments, "last_seq": seq},
+    )
     await websocket.send_json(completed_event_with_seq)
     done_event = {"type": "completed"}
     done_seq = append_event(call_id, done_event)
@@ -147,17 +202,27 @@ def get_insights(call_id: str, db: Session = Depends(get_db)) -> dict:
     insight = db.query(Insight).filter(Insight.call_id == uuid.UUID(call_id)).first()
     if not insight:
         raise HTTPException(status_code=404, detail="Insights not ready")
+    score = insight.call_score or {}
     return {
         "objections": insight.objections or [],
         "action_items": insight.action_items or [],
         "sentiment_timeline": insight.sentiment_timeline or [],
-        "call_score": insight.call_score or {},
+        "call_score": {
+            k: v for k, v in score.items() if k not in ("summary", "key_topics")
+        },
+        "summary": score.get("summary", ""),
+        "key_topics": score.get("key_topics", []),
     }
 
 
 @app.post("/calls/{call_id}/query")
 def query_call(call_id: str, req: QueryRequest, db: Session = Depends(get_db)) -> dict:
-    transcripts = db.query(Transcript).filter(Transcript.call_id == uuid.UUID(call_id)).order_by(Transcript.start_time).all()
+    transcripts = (
+        db.query(Transcript)
+        .filter(Transcript.call_id == uuid.UUID(call_id))
+        .order_by(Transcript.start_time)
+        .all()
+    )
     if not transcripts:
         raise HTTPException(status_code=404, detail="Transcript not found")
     segments = [

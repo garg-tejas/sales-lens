@@ -1,33 +1,33 @@
-from app.services.intelligence import compute_call_score, detect_objections, extract_actions, sentiment_timeline
+from __future__ import annotations
+
+from app.services.intelligence import run_intelligence
 from app.services.rag import build_or_load_index, chunk_transcript
 
 
 class CallProcessingGraph:
-    """
-    Lightweight LangGraph-style orchestrator:
-    transcribe_done -> insights_node -> rag_index_node -> finalize
-    """
+    """Orchestrator: insights -> rag_index -> finalize."""
 
     def __init__(self, segments: list[dict], call_id: str) -> None:
-        self.state = {
+        self.state: dict = {
             "segments": segments,
             "call_id": call_id,
             "objections": [],
             "sentiment": [],
             "actions": [],
             "score": {},
+            "summary": "",
+            "key_topics": [],
             "index_ready": False,
         }
 
     def insights_node(self) -> None:
-        segments = self.state["segments"]
-        objections = detect_objections(segments)
-        sentiment = sentiment_timeline(segments)
-        actions = extract_actions(segments)
-        score = compute_call_score(segments, objections, actions)
-        self.state["objections"] = objections
-        self.state["sentiment"] = sentiment
-        self.state["actions"] = actions
+        result = run_intelligence(self.state["segments"])
+        self.state["objections"] = result.get("objections", [])
+        self.state["sentiment"] = result.get("sentiment_timeline", [])
+        self.state["actions"] = result.get("action_items", [])
+        score = result.get("call_score", {})
+        score["summary"] = result.get("summary", "")
+        score["key_topics"] = result.get("key_topics", [])
         self.state["score"] = score
 
     def rag_index_node(self) -> None:

@@ -1,48 +1,70 @@
+from __future__ import annotations
+
+import logging
 from collections.abc import Generator
 
-from faster_whisper import WhisperModel
-from pyannote.audio import Pipeline
 import torch
 
 from app.config import settings
+from app.services.intelligence import identify_roles
+from app.services.models import get_diarization, get_whisper
+
+logger = logging.getLogger("saleslens.transcription")
+
+TURN_MERGE_GAP = 0.4
 
 
-def infer_speaker(text: str, idx: int) -> str:
-    # Placeholder role mapping for MVP; can be replaced with pyannote labels.
-    if any(k in text.lower() for k in ("price", "cost", "budget", "expensive")):
-        return "Customer"
-    return "Agent" if idx % 2 == 0 else "Customer"
+def _merge_turns(
+    turns: list[tuple[float, float, str]],
+    gap: float = TURN_MERGE_GAP,
+) -> list[tuple[float, float, str]]:
+    if not turns:
+        return []
+
+    turns.sort(key=lambda t: t[0])
+    merged = [turns[0]]
+
+    for start, end, label in turns[1:]:
+        prev_start, prev_end, prev_label = merged[-1]
+        if label == prev_label and (start - prev_end) <= gap:
+            merged[-1] = (prev_start, max(prev_end, end), prev_label)
+        else:
+            merged.append((start, end, label))
+
+    return merged
 
 
 def apply_diarization(audio_path: str, segments: list[dict]) -> list[dict]:
-    """
-    Best-effort pyannote diarization.
-    Falls back silently to heuristic labels when pipeline/model auth is unavailable.
-    """
-    if not settings.hf_token:
+    pipeline = get_diarization()
+    if pipeline is None:
         return segments
+
     try:
-        pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1", use_auth_token=settings.hf_token)
-        pipeline.to(torch.device(settings.diarization_device))
-        diarization = pipeline(audio_path)
+        diarization = pipeline(audio_path, min_num_speakers=2, max_num_speakers=2)
     except Exception:
+        logger.exception("Diarization failed – falling back to heuristic")
         return segments
 
-    speaker_windows = []
+    raw_turns = []
     for turn, _, speaker in diarization.itertracks(yield_label=True):
-        speaker_windows.append((float(turn.start), float(turn.end), str(speaker)))
-    if not speaker_windows:
+        raw_turns.append((float(turn.start), float(turn.end), str(speaker)))
+
+    if not raw_turns:
         return segments
 
-    canonical = {}
-    speaker_duration = {}
-    speaker_customer_signals = {}
+    speaker_windows = _merge_turns(raw_turns)
 
-    for s, e, label in speaker_windows:
-        speaker_duration[label] = speaker_duration.get(label, 0.0) + (e - s)
-        speaker_customer_signals.setdefault(label, 0)
+    role_map = identify_roles(segments)
 
-    customer_cues = ("price", "cost", "budget", "expensive", "not sure", "too much", "competitor")
+    if not role_map:
+        labels = sorted(set(label for _, _, label in speaker_windows))
+        if len(labels) >= 2:
+            role_map = {labels[0]: "Agent", labels[1]: "Customer"}
+            for i, label in enumerate(labels[2:], start=3):
+                role_map[label] = f"Speaker {i}"
+        elif labels:
+            role_map[labels[0]] = "Agent"
+
     for seg in segments:
         midpoint = (seg["start_time"] + seg["end_time"]) / 2.0
         selected = None
@@ -50,57 +72,37 @@ def apply_diarization(audio_path: str, segments: list[dict]) -> list[dict]:
             if s <= midpoint <= e:
                 selected = label
                 break
-        if selected is None:
-            continue
-        low = seg["text"].lower()
-        if any(c in low for c in customer_cues):
-            speaker_customer_signals[selected] = speaker_customer_signals.get(selected, 0) + 1
-        seg["_diarized_label"] = selected
+        if selected is not None:
+            seg["speaker"] = role_map.get(selected, seg["speaker"])
 
-    labels = list(speaker_duration.keys())
-    if not labels:
-        return segments
-
-    labels_sorted = sorted(
-        labels,
-        key=lambda l: (speaker_customer_signals.get(l, 0), -speaker_duration.get(l, 0.0)),
-        reverse=True,
-    )
-
-    customer_label = labels_sorted[0]
-    canonical[customer_label] = "Customer"
-    remaining = [l for l in labels if l != customer_label]
-    if remaining:
-        agent_label = max(remaining, key=lambda l: speaker_duration.get(l, 0.0))
-        canonical[agent_label] = "Agent"
-    for l in labels:
-        canonical.setdefault(l, "Customer")
-
-    for seg in segments:
-        label = seg.pop("_diarized_label", None)
-        if label is not None:
-            seg["speaker"] = canonical.get(label, seg["speaker"])
     return segments
 
 
 def transcribe_segments(audio_path: str) -> tuple[list[dict], str]:
-    model = WhisperModel(
-        settings.whisper_model_size,
-        device=settings.whisper_device,
-        compute_type=settings.whisper_compute_type,
-    )
-    segments, info = model.transcribe(audio_path, vad_filter=True, language=None)
+    model = get_whisper()
 
-    out = []
-    for idx, seg in enumerate(segments):
-        out.append(
-            {
-                "speaker": infer_speaker(seg.text, idx),
-                "text": seg.text.strip(),
-                "start_time": float(seg.start),
-                "end_time": float(seg.end),
-            }
+    with torch.inference_mode():
+        segments_raw, info = model.transcribe(
+            audio_path,
+            vad_filter=settings.whisper_vad_filter,
+            language=None,
+            beam_size=settings.whisper_beam_size,
+            initial_prompt=settings.whisper_initial_prompt,
         )
+
+        out = []
+        for seg in segments_raw:
+            text = seg.text.strip()
+            if text:
+                out.append(
+                    {
+                        "speaker": "Speaker",
+                        "text": text,
+                        "start_time": float(seg.start),
+                        "end_time": float(seg.end),
+                    }
+                )
+
     out = apply_diarization(audio_path, out)
     return out, getattr(info, "language", "auto")
 
