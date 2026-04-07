@@ -1,44 +1,54 @@
-# SalesLens - Real-Time Sales Call Intelligence
+# SalesLens — Real-Time Sales Call Intelligence
 
-SalesLens is a intelligence platform for sales calls. Upload a call, stream transcription in real time, generate actionable insights, and ask grounded questions over the transcript.
-
-## Demo
-
-- Screenshot/GIF placeholder: add `docs/demo.gif` after local run validation.
+Upload a sales call, stream transcription in real time, get AI-powered insights, and ask grounded questions over the transcript.
 
 ## Architecture
 
 ![Architecture Diagram](docs/architecture.png)
 
+```
+POST /calls/upload          →  save audio, create DB record
+WS   /calls/{id}/stream     →  transcribe → diarize → stream → analyze → insights
+GET  /calls/{id}/insights   →  return computed analysis
+POST /calls/{id}/query      →  RAG Q&A against transcript
+GET  /calls                 →  list all past calls
+```
+
+## Pipeline
+
+1. **Transcription** — faster-whisper (medium, CUDA, beam=5, VAD filter)
+2. **Diarization** — pyannote/speaker-diarization-3.1 (forced 2 speakers)
+3. **Role identification** — LLM maps speaker labels to Agent/Customer
+4. **Intelligence** — LLM detects objections, action items, topics, scoring
+5. **RAG indexing** — sentence-transformers embeddings + FAISS vector store
+
 ## Core Features
 
-1. Audio upload (`.mp3`/`.wav`) with call session creation.
-2. Real-time transcript streaming over WebSocket.
-3. Post-call intelligence:
-   - objection detection
-   - sentiment timeline
-   - action item extraction
-   - call score (0-100) with reasoning
-4. RAG-powered Q&A over transcript chunks with timestamp citations.
-5. History page for previously analyzed calls.
-
-## API Endpoints
-
-- `POST /calls/upload` -> returns `{ call_id, status }`
-- `WS /calls/{id}/stream` -> emits `transcript_segment` events and completion state
-- `GET /calls/{id}/insights` -> returns objections/action items/sentiment/call score
-- `POST /calls/{id}/query` -> body `{ question }`, returns grounded answer
-- `GET /calls` -> list all calls
+- Audio upload (`.mp3`/`.wav`) with call session creation
+- Real-time transcript streaming over WebSocket with word-by-word updates
+- Post-call intelligence:
+  - Objection detection with severity
+  - Sentiment timeline
+  - Action item extraction with priority
+  - Call score (0–100) with multi-dimensional breakdown
+  - Key topics and executive summary
+- RAG-powered Q&A over transcript with timestamp citations
+- Speaker diarization with Agent/Customer role identification
+- Persistent call history with searchable transcripts
 
 ## Tech Stack
 
-- Backend: Python, FastAPI, Redis, PostgreSQL
-- STT: faster-whisper (streamed events)
-- RAG: LangChain + FAISS
-- LLM provider: Hugging Face Router via OpenAI-compatible SDK
-- Frontend: Next.js + React + Tailwind-style global design system
-- Package managers: `uv` (Python), `pnpm` (JS)
-- Deployment: Render (backend), Vercel (frontend)
+| Layer | Technology |
+|---|---|
+| Backend | Python, FastAPI, Redis, PostgreSQL |
+| STT | faster-whisper (medium, CUDA, float16) |
+| Diarization | pyannote/speaker-diarization-3.1 |
+| Embeddings | sentence-transformers/all-MiniLM-L6-v2 |
+| RAG | FAISS vector store |
+| LLM | HuggingFace Router (Qwen/9B via Together AI) |
+| Frontend | Next.js 16, React 19, TypeScript |
+| Package managers | `uv` (Python), `pnpm` (JS) |
+| Deployment | Render (backend), Vercel (frontend) |
 
 ## Local Setup
 
@@ -53,10 +63,13 @@ docker compose -f infra/docker-compose.yml up -d
 ```bash
 cd backend
 cp .env.example .env
+# Edit .env — set HF_TOKEN at minimum
 uv sync
 uv run alembic upgrade head
 uv run uvicorn app.main:app --reload --port 8000
 ```
+
+OpenAPI docs at `http://localhost:8000/docs`
 
 ### 3) Frontend
 
@@ -66,12 +79,56 @@ pnpm install
 pnpm dev
 ```
 
-Set `NEXT_PUBLIC_API_URL=http://localhost:8000`.
+Set `NEXT_PUBLIC_API_URL=http://localhost:8000` in `frontend/.env.local`.
+
+## Configuration
+
+### Backend (`.env`)
+
+| Variable | Default | Description |
+|---|---|---|
+| `HF_TOKEN` | | HuggingFace token (required for diarization + LLM) |
+| `WHISPER_MODEL_SIZE` | `medium` | Whisper model size |
+| `USE_LLM_INTELLIGENCE` | `true` | Use LLM for objection/action/score analysis |
+| `HF_MODEL_ANALYSIS` | `Qwen/Qwen3.5-9B:together` | Primary LLM |
+| `HF_MODEL_QA` | `Qwen/Qwen3.5-9B:together` | Fallback LLM for Q&A |
+
+### Frontend (`.env.local`)
+
+| Variable | Default | Description |
+|---|---|---|
+| `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | Backend URL |
+
+## Project Structure
+
+```
+sales-lens/
+├── backend/
+│   ├── app/
+│   │   ├── services/
+│   │   │   ├── models.py          # GPU model singleton cache
+│   │   │   ├── transcription.py   # Whisper + pyannote pipeline
+│   │   │   ├── intelligence.py    # LLM + rule-based analysis
+│   │   │   ├── rag.py             # FAISS RAG indexing & query
+│   │   │   ├── llm.py             # HuggingFace Router client
+│   │   │   ├── orchestrator.py    # Processing graph
+│   │   │   └── redis_state.py     # WebSocket event caching
+│   │   ├── main.py                # FastAPI app + routes
+│   │   ├── config.py              # Settings
+│   │   ├── models.py              # SQLAlchemy ORM
+│   │   └── schemas.py             # Pydantic schemas
+│   └── storage/                   # Uploads + FAISS indexes
+├── frontend/
+│   ├── app/                       # Next.js App Router pages
+│   ├── components/                # Reusable UI components
+│   └── lib/                       # API client + types
+└── infra/                         # Docker Compose + Render config
+```
 
 ## Deployment
 
-- Backend: use `infra/render.yaml`, configure env vars (`DATABASE_URL`, `REDIS_URL`, `HF_TOKEN`).
-- Frontend: deploy `frontend/` on Vercel and set `NEXT_PUBLIC_API_URL` to backend URL.
+- **Backend:** use `infra/render.yaml`, configure env vars (`DATABASE_URL`, `REDIS_URL`, `HF_TOKEN`). Requires GPU instance.
+- **Frontend:** deploy `frontend/` on Vercel, set `NEXT_PUBLIC_API_URL` to backend URL.
 
 ## How this maps to real-world sales intelligence
 
