@@ -2,7 +2,7 @@
 name = "saleslens-backend"
 version = "0.1.0"
 description = "SalesLens FastAPI backend"
-readme = "README.md"
+readme = "../README.md"
 requires-python = ">=3.11"
 dependencies = [
   "alembic>=1.14.0",
@@ -13,7 +13,7 @@ dependencies = [
   "openai>=1.50.0",
   "psycopg[binary]>=3.2.0",
   "pydantic-settings>=2.6.0",
-  "pyannote.audio>=3.3.2",
+  "pyannote-audio>=3.3.2",
   "python-multipart>=0.0.9",
   "redis>=5.1.1",
   "sentence-transformers>=3.3.0",
@@ -32,6 +32,9 @@ build-backend = "hatchling.build"
 dev = [
   "pytest>=8.3.0",
   "ruff>=0.7.0",
+  "datasets>=2.18.0",
+  "pyannote.metrics>=3.2.1",
+  "tqdm>=4.66.0",
 ]
 
 [tool.hatch.build.targets.wheel]

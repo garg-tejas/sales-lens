@@ -1,0 +1,78 @@
+{
+  "aggregate": [
+    {
+      "model_id": "pyannote/speaker-diarization-community-1",
+      "status": "ok",
+      "clips": 1,
+      "failures": 0,
+      "avg_der": 0.13474440011538497,
+      "avg_jer": 0.17370760281316405,
+      "avg_infer_seconds": 51.64188809999905,
+      "notes": "Loaded as pipeline"
+    },
+    {
+      "model_id": "pyannote/speaker-diarization-3.1",
+      "status": "ok",
+      "clips": 1,
+      "failures": 0,
+      "avg_der": 0.1389911795808722,
+      "avg_jer": 0.18181367397122,
+      "avg_infer_seconds": 55.57774169999175,
+      "notes": "Loaded as pipeline"
+    },
+    {
+      "model_id": "pyannote/speaker-diarization-3.0",
+      "status": "ok",
+      "clips": 1,
+      "failures": 0,
+      "avg_der": 0.13908863680063746,
+      "avg_jer": 0.18226029147645212,
+      "avg_infer_seconds": 102.11942160000035,
+      "notes": "Loaded as pipeline"
+    },
+    {
+      "model_id": "mhdp-africa/speaker-segmentation-fine-tuned-callhome",
+      "status": "ok",
+      "clips": 1,
+      "failures": 0,
+      "avg_der": 0.1389911795808722,
+      "avg_jer": 0.18181367397122,
+      "avg_infer_seconds": 14.693389900014154,
+      "notes": "Loaded as pipeline"
+    }
+  ],
+  "per_clip": [
+    {
+      "clip_index": 0,
+      "model_id": "pyannote/speaker-diarization-community-1",
+      "load_mode": "pipeline",
+      "der": 0.13474440011538497,
+      "jer": 0.17370760281316405,
+      "infer_seconds": 51.64188809999905
+    },
+    {
+      "clip_index": 0,
+      "model_id": "pyannote/speaker-diarization-3.1",
+      "load_mode": "pipeline",
+      "der": 0.1389911795808722,
+      "jer": 0.18181367397122,
+      "infer_seconds": 55.57774169999175
+    },
+    {
+      "clip_index": 0,
+      "model_id": "pyannote/speaker-diarization-3.0",
+      "load_mode": "pipeline",
+      "der": 0.13908863680063746,
+      "jer": 0.18226029147645212,
+      "infer_seconds": 102.11942160000035
+    },
+    {
+      "clip_index": 0,
+      "model_id": "mhdp-africa/speaker-segmentation-fine-tuned-callhome",
+      "load_mode": "pipeline",
+      "der": 0.1389911795808722,
+      "jer": 0.18181367397122,
+      "infer_seconds": 14.693389900014154
+    }
+  ]
+}
