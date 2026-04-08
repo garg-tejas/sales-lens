@@ -24,7 +24,7 @@ class Settings(BaseSettings):
         "Use proper punctuation and capitalization."
     )
     diarization_device: str = "cuda"
-    diarization_model: str = "pyannote/speaker-diarization-3.1"
+    diarization_model: str = "pyannote/speaker-diarization-community-1"
     diarization_min_speakers: int = 1
     diarization_max_speakers: int = 4
     diarization_merge_gap_sec: float = 0.3

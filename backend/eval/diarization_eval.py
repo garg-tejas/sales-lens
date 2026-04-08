@@ -16,7 +16,6 @@ from app.config import settings
 DEFAULT_MODELS = [
     "pyannote/speaker-diarization-community-1",
     "pyannote/speaker-diarization-3.1",
-    "pyannote/speaker-diarization-3.0",
     "mhdp-africa/speaker-segmentation-fine-tuned-callhome",
 ]
 

@@ -8,7 +8,6 @@ By default it loads `talkbank/callhome` with config `"eng"`.
 
 - `pyannote/speaker-diarization-community-1`
 - `pyannote/speaker-diarization-3.1`
-- `pyannote/speaker-diarization-3.0`
 - `mhdp-africa/speaker-segmentation-fine-tuned-callhome`
 
 ## Setup
@@ -79,3 +78,24 @@ Metrics:
 - `DER`: diarization error rate
 - `JER`: jaccard error rate
 - `avg_infer_seconds`: average inference time per clip
+
+## Benchmark snapshot (2026-04-08)
+
+Command used:
+
+```bash
+uv run -m eval.diarization_eval --split data --max-samples 35 \
+  --model pyannote/speaker-diarization-community-1 \
+  --model pyannote/speaker-diarization-3.1 \
+  --model mhdp-africa/speaker-segmentation-fine-tuned-callhome
+```
+
+Results:
+
+| Model | Clips | DER | JER | Avg sec/clip | Notes |
+|---|---:|---:|---:|---:|---|
+| `pyannote/speaker-diarization-community-1` | 35 | 0.1971 | 0.2808 | 41.73 | Best DER/JER in this run |
+| `pyannote/speaker-diarization-3.1` | 35 | 0.2079 | 0.2948 | 35.87 | Faster but lower accuracy |
+| `mhdp-africa/speaker-segmentation-fine-tuned-callhome` | 35 | 0.2079 | 0.2948 | 35.90 | Similar to 3.1 in this run |
+
+Current default recommendation for SalesLens diarization: `pyannote/speaker-diarization-community-1`.
