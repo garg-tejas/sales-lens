@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     )
     diarization_device: str = "cuda"
     diarization_model: str = "pyannote/speaker-diarization-3.1"
+    diarization_min_speakers: int = 1
+    diarization_max_speakers: int = 4
+    diarization_merge_gap_sec: float = 0.3
+    diarization_min_overlap_ratio: float = 0.2
+    diarization_enable_word_level: bool = True
+    diarization_debug_metrics: bool = True
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     embedding_device: str = "cuda"
     embedding_dim: int = 384
